@@ -126,11 +126,16 @@ main(void)
     /* MARK START task1 */
     /* TAREFA1: O que faz o if abaixo e por que ele é necessário?
      * Insira sua resposta no código e modifique o fprintf abaixo
-     * para reportar o erro corretamente. */
-    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
-      buf[strlen(buf)-1] = 0;
-      if(chdir(buf+3) < 0)
-        fprintf(stderr, "reporte erro\n");
+     * para reportar o erro corretamente. 
+    RESPOSTA:
+    ->  O código verifica se o comando inserido começa com 'cd ', é necessário para identificar se a entrada 
+    é o referido comando. Se sim, tenta mudar o diretório usando a função chdir(). Se chdir() retorna um 
+    valor menor que zero, significa que a mudança de diretório falhou. Nesse caso, o imprime-se um erro.
+    */
+    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){    // olho se o camando é o 'cd '
+      buf[strlen(buf)-1] = 0;                               // coloco 0 na ultima posição do buf
+      if(chdir(buf+3) < 0)                                  // tento navegar para o dir
+        fprintf(stderr, "bash: cd: %s: No such file or directory\n", buf+3);
       continue;
     }
     /* MARK END task1 */
