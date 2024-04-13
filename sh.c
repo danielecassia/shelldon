@@ -113,9 +113,6 @@ void runcmd(struct cmd *cmd) {
         else
             dup2(fd, STDOUT_FILENO);
         close(fd);
-        // Execute the command
-        runcmd(rcmd->cmd);
-        break;
         /* MARK END task3 */
         runcmd(rcmd->cmd);
         break;
