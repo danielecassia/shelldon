@@ -48,10 +48,14 @@ struct pipecmd {
     struct cmd *right;  // lado direito do pipe
 };
 
+
 int fork1(void);               // Fork mas fechar se ocorrer erro.
 struct cmd *parsecmd(char *);  // Processar o linha de comando.
 
-// DEBUGGER PARA DEBUGAR
+
+
+/* MARK START debug
+DEBUGGER PARA DEBUGAR*/
 
 // Function prototype declarations
 void printcmd(struct cmd *c);
@@ -102,7 +106,7 @@ void printcmd(struct cmd *c) {
     }
 }
 
-//
+/* MARK END debug */
 
 void runls() {
     DIR *d;
@@ -178,42 +182,35 @@ void runcmd(struct cmd *cmd) {
                 exit(EXIT_FAILURE);
             }
             // Fork um processo filho para o comando esquerdo
-            pid_t pid = fork();
-            if (pid == -1) {
-                perror("fork");
-                exit(EXIT_FAILURE);
-            }
-            if (pid == 0) {
-                // Processo filho: feche a extremidade de leitura do pipe e 
-                // redirecione o stdout para pipe
-                close(pipefd[0]);
-                dup2(pipefd[1], STDOUT_FILENO);
-                close(pipefd[1]);
-                // EExecute o comando esquerdo
-                runcmd(pcmd->left);
-                exit(EXIT_FAILURE);  // O processo filho não deve continuar
-            } else {
-                // Processo pai: bifurque outro processo filho pela direita
-                pid = fork();
-                if (pid == -1) {
-                    perror("fork");
-                    exit(EXIT_FAILURE);
-                }
-                if (pid == 0) {
-                    // Processo filho: feche o fim do pipe de gravação e redirecione o stdin
-                    close(pipefd[1]);
-                    dup2(pipefd[0], STDIN_FILENO);
-                    close(pipefd[0]);
-                    // Execute o comando direito
-                    runcmd(pcmd->right);
-                    exit(EXIT_FAILURE);  // O processo filho não deve continuar
-                } else {
-                    // Processo pai: feche ambas as extremidades do pipe e aguarde
-                    close(pipefd[0]);
-                    close(pipefd[1]);
-                    wait(NULL);
-                    wait(NULL);
-                }
+            pid_t pid = fork1();
+          if (pid == 0) {
+              // Processo filho: feche a extremidade de leitura do pipe e 
+              // redirecione o stdout para pipe
+              close(pipefd[0]);
+              dup2(pipefd[1], STDOUT_FILENO);
+              close(pipefd[1]);
+              // Execute o comando esquerdo
+              runcmd(pcmd->left);
+              exit(EXIT_FAILURE);  // O processo filho não deve continuar
+            } 
+            else {
+              // Processo pai: bifurque outro processo filho pela direita
+              pid = fork1();
+              if (pid == 0) {
+                  // Processo filho: feche o fim do pipe de gravação e redirecione o stdin
+                  close(pipefd[1]);
+                  dup2(pipefd[0], STDIN_FILENO);
+                  close(pipefd[0]);
+                  // Execute o comando direito
+                  runcmd(pcmd->right);
+                  exit(EXIT_FAILURE);  // O processo filho não deve continuar
+              } else {
+                  // Processo pai: feche ambas as extremidades do pipe e aguarde
+                  close(pipefd[0]);
+                  close(pipefd[1]);
+                  wait(NULL);
+                  wait(NULL);
+              }
             }
             /* MARK END task4 */
             break;
@@ -260,7 +257,7 @@ int main(void) {
 
         if (fork1() == 0) {
             struct cmd *c = parsecmd(buf);
-            printcmd(c);
+            // printcmd(c); //debug
             runcmd(c);
         }
         wait(&r);
