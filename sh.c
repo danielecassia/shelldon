@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,7 +8,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <dirent.h>
 
 /* MARK NAME Daniele Cássia Silva Diniz */
 
@@ -51,23 +51,73 @@ struct pipecmd {
 int fork1(void);               // Fork mas fechar se ocorrer erro.
 struct cmd *parsecmd(char *);  // Processar o linha de comando.
 
+// DEBUGGER PARA DEBUGAR
 
+// Function prototype declarations
+void printcmd(struct cmd *c);
 
-void runls(){
-  DIR *d;
-  struct dirent *dir;
-  d = opendir(".");
-
-  if(d){
-    while((dir = readdir(d)) != NULL){
-      printf("%s\n", dir->d_name);
+void printexeccmd(struct execcmd *c) {
+    printf("exec command:\n");
+    printf("  argv: ");
+    for (int i = 0; c->argv[i] != NULL; i++) {
+        printf("'%s' ", c->argv[i]);
     }
-    closedir(d);
-  }
-  else{
-    perror("Failed to open directory");
-    exit(EXIT_FAILURE);
-  }
+    printf("\n");
+}
+
+void printredircmd(struct redircmd *c) {
+    printf("redirection command:\n");
+    printf("  file: '%s', mode: %d, fd: %d\n", c->file, c->mode, c->fd);
+    printf("  subcommand:\n");
+    printcmd(c->cmd);
+}
+
+void printpipecmd(struct pipecmd *c) {
+    printf("pipe command:\n");
+    printf("  left side command:\n");
+    printcmd(c->left);
+    printf("  right side command:\n");
+    printcmd(c->right);
+}
+
+void printcmd(struct cmd *c) {
+    if (!c) {
+        printf("NULL command\n");
+        return;
+    }
+
+    switch (c->type) {
+        case ' ':
+            printexeccmd((struct execcmd *)c);
+            break;
+        case '>':
+        case '<':
+            printredircmd((struct redircmd *)c);
+            break;
+        case '|':
+            printpipecmd((struct pipecmd *)c);
+            break;
+        default:
+            printf("Unknown command type\n");
+    }
+}
+
+//
+
+void runls() {
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(".");
+
+    if (d) {
+        while ((dir = readdir(d)) != NULL) {
+            printf("%s\n", dir->d_name);
+        }
+        closedir(d);
+    } else {
+        perror("Failed to open directory");
+        exit(EXIT_FAILURE);
+    }
 }
 
 /* Executar comando cmd.  Nunca retorna. */
@@ -80,92 +130,93 @@ void runcmd(struct cmd *cmd) {
     if (cmd == 0) exit(0);
 
     switch (cmd->type) {
-      default:
-        fprintf(stderr, "tipo de comando desconhecido\n");
-        exit(-1);
+        default:
+            fprintf(stderr, "tipo de comando desconhecido\n");
+            exit(-1);
 
-      case ' ':
-        ecmd = (struct execcmd *)cmd;
-        if (ecmd->argv[0] == 0) exit(0);
-        /* MARK START task2
-          * TAREFA2: Implemente codigo abaixo para executar
-          * comandos simples. */
-        execvp(ecmd->argv[0], ecmd->argv);
+        case ' ':
+            ecmd = (struct execcmd *)cmd;
+            if (ecmd->argv[0] == 0) exit(0);
+            /* MARK START task2
+             * TAREFA2: Implemente codigo abaixo para executar
+             * comandos simples. */
+            execvp(ecmd->argv[0], ecmd->argv);
 
-        /* MARK END task2 */
-        break;
+            /* MARK END task2 */
+            break;
 
-      case '>':
-      case '<':
-        rcmd = (struct redircmd *)cmd;
-        /* MARK START task3
-          * TAREFA3: Implemente codigo abaixo para executar
-          * comando com redirecionamento. */
-        // Open file for redirection
-        int fd = open(rcmd->file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
-        if (fd < 0) {
-            perror("open");
-            exit(EXIT_FAILURE);
-        }
-        // Redirect stdin or stdout
-        if (cmd->type == '<')
-            dup2(fd, STDIN_FILENO);
-        else
-            dup2(fd, STDOUT_FILENO);
-        close(fd);
-        /* MARK END task3 */
-        runcmd(rcmd->cmd);
-        break;
+        case '>':
+        case '<':
+            rcmd = (struct redircmd *)cmd;
+            /* MARK START task3
+             * TAREFA3: Implemente codigo abaixo para executar
+             * comando com redirecionamento. */
+            // Abre arquivo para redirecionamento
+            int fd = open(rcmd->file, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+            if (fd < 0) {
+                perror("open");
+                exit(EXIT_FAILURE);
+            }
+            // Redireciona stdin ou stdout
+            if (cmd->type == '<')
+                dup2(fd, STDIN_FILENO);
+            else
+                dup2(fd, STDOUT_FILENO);
+            close(fd);
+            /* MARK END task3 */
+            runcmd(rcmd->cmd);
+            break;
 
-      case '|':
-        pcmd = (struct pipecmd *)cmd;
-        /* MARK START task4
-          * TAREFA4: Implemente codigo abaixo para executar
-          * comando com pipes. */
-        int pipefd[2];
-        if (pipe(pipefd) == -1) {
-            perror("pipe");
-            exit(EXIT_FAILURE);
-        }
-        // Fork a child process for the left command
-        pid_t pid = fork();
-        if (pid == -1) {
-            perror("fork");
-            exit(EXIT_FAILURE);
-        }
-        if (pid == 0) {
-            // Child process: close read end of pipe and redirect stdout to pipe
-            close(pipefd[0]);
-            dup2(pipefd[1], STDOUT_FILENO);
-            close(pipefd[1]);
-            // Execute left command
-            runcmd(pcmd->left);
-            exit(EXIT_FAILURE); // Child process should not continue
-        } else {
-          // Parent process: fork another child process for the right command
-          pid = fork();
-          if (pid == -1) {
-            perror("fork");
-            exit(EXIT_FAILURE);
-          }
-          if (pid == 0) {
-            // Child process: close write end of pipe and redirect stdin from pipe
-            close(pipefd[1]);
-            dup2(pipefd[0], STDIN_FILENO);
-            close(pipefd[0]);
-            // Execute right command
-            runcmd(pcmd->right);
-            exit(EXIT_FAILURE); // Child process should not continue
-          } else {
-            // Parent process: close both ends of the pipe and wait for children
-            close(pipefd[0]);
-            close(pipefd[1]);
-            wait(NULL);
-            wait(NULL);
-          }
-        }
-        /* MARK END task4 */
-        break;
+        case '|':
+            pcmd = (struct pipecmd *)cmd;
+            /* MARK START task4
+             * TAREFA4: Implemente codigo abaixo para executar
+             * comando com pipes. */
+            int pipefd[2];
+            if (pipe(pipefd) == -1) {
+                perror("pipe");
+                exit(EXIT_FAILURE);
+            }
+            // Fork um processo filho para o comando esquerdo
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork");
+                exit(EXIT_FAILURE);
+            }
+            if (pid == 0) {
+                // Processo filho: feche a extremidade de leitura do pipe e 
+                // redirecione o stdout para pipe
+                close(pipefd[0]);
+                dup2(pipefd[1], STDOUT_FILENO);
+                close(pipefd[1]);
+                // EExecute o comando esquerdo
+                runcmd(pcmd->left);
+                exit(EXIT_FAILURE);  // O processo filho não deve continuar
+            } else {
+                // Processo pai: bifurque outro processo filho pela direita
+                pid = fork();
+                if (pid == -1) {
+                    perror("fork");
+                    exit(EXIT_FAILURE);
+                }
+                if (pid == 0) {
+                    // Processo filho: feche o fim do pipe de gravação e redirecione o stdin
+                    close(pipefd[1]);
+                    dup2(pipefd[0], STDIN_FILENO);
+                    close(pipefd[0]);
+                    // Execute o comando direito
+                    runcmd(pcmd->right);
+                    exit(EXIT_FAILURE);  // O processo filho não deve continuar
+                } else {
+                    // Processo pai: feche ambas as extremidades do pipe e aguarde
+                    close(pipefd[0]);
+                    close(pipefd[1]);
+                    wait(NULL);
+                    wait(NULL);
+                }
+            }
+            /* MARK END task4 */
+            break;
     }
     exit(0);
 }
@@ -197,16 +248,21 @@ int main(void) {
         caso, o imprime-se um erro.
         */
         if (buf[0] == 'c' && buf[1] == 'd' &&
-            buf[2] == ' ') {           // olho se o camando é o 'cd '
-            buf[strlen(buf) - 1] = 0;  // coloco 0 na ultima posição do buf (remover o \n ?)
-            if (chdir(buf + 3) < 0)    // tento navegar para o dir
+            buf[2] == ' ') {  // olho se o camando é o 'cd '
+            buf[strlen(buf) - 1] =
+                0;  // coloco 0 na ultima posição do buf (remover o \n ?)
+            if (chdir(buf + 3) < 0)  // tento navegar para o dir
                 fprintf(stderr, "bash: cd: %s: No such file or directory\n",
                         buf + 3);
             continue;
         }
         /* MARK END task1 */
 
-        if (fork1() == 0) runcmd(parsecmd(buf));
+        if (fork1() == 0) {
+            struct cmd *c = parsecmd(buf);
+            printcmd(c);
+            runcmd(c);
+        }
         wait(&r);
     }
     exit(0);
@@ -271,13 +327,12 @@ struct cmd *pipecmd(struct cmd *left, struct cmd *right) {
 char whitespace[] = " \t\r\n\v";
 char symbols[] = "<|>";
 
-
 /**
 Separa os comando nos divisores de pipe ou redirecionamento
 EXEMPLO:
     ps                   es
     cat n.txt  | grep "Oi"
-FINAL: 
+FINAL:
     q        eq  ps           es
     cat n.txt    |  grep "Oi"
 */
@@ -344,13 +399,14 @@ char *mkcopy(char *s, char *es) {
 recebe inicio da string e retorna arvore de execução
 */
 struct cmd *parsecmd(char *s) {
-    char *es;         
+    char *es;
     struct cmd *cmd;
 
-    es = s + strlen(s);       // aponta para o fim da string
-    cmd = parseline(&s, es);  // organizar a arvore de execução/argumentos dos comandos
-    peek(&s, es, "");         // Da uma limpada no comeco da string
-    if (s != es) {            // A entrada não foi interamente consumida
+    es = s + strlen(s);  // aponta para o fim da string
+    cmd = parseline(
+        &s, es);  // organizar a arvore de execução/argumentos dos comandos
+    peek(&s, es, "");  // Da uma limpada no comeco da string
+    if (s != es) {     // A entrada não foi interamente consumida
         fprintf(stderr, "leftovers: %s\n", s);
         exit(-1);
     }
@@ -382,7 +438,7 @@ struct cmd *parsepipe(char **ps, char *es) {
 }
 
 /**
-Trata os casos em que o comando é um redirecionamento 
+Trata os casos em que o comando é um redirecionamento
 */
 struct cmd *parseredirs(struct cmd *cmd, char **ps, char *es) {
     int tok;
@@ -416,11 +472,11 @@ struct cmd *parseexec(char **ps, char *es) {
     struct cmd *ret;
 
     ret = execcmd();
-    cmd = (struct execcmd *)ret;        // tem type e argv
+    cmd = (struct execcmd *)ret;  // tem type e argv
 
     argc = 0;
     ret = parseredirs(ret, ps, es);
-    while (!peek(ps, es, "|")) { // verifica se o comando não é um pipe
+    while (!peek(ps, es, "|")) {  // verifica se o comando não é um pipe
         if ((tok = gettoken(ps, es, &q, &eq)) == 0) break;
         if (tok != 'a') {
             fprintf(stderr, "syntax error\n");
